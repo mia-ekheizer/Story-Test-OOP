@@ -20,7 +20,7 @@ public interface StoryTester {
 	/**
 	 * Runs a given story on an instance of a given class, or an instances of its 
 	 * ancestors, or its nested class (and their ancestors) as described by the 
-	 * the assignment document. before running the story use must create an instance 
+	 * assignment document. before running the story use must create an instance
 	 * of the given correct class to run story on.
 	 * 
 	 * @param story contains the text of the story to test, the string is 

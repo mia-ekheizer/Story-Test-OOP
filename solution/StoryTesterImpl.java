@@ -8,7 +8,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-
 public class StoryTesterImpl implements StoryTester {
 
     private Object objectBackup;
@@ -18,12 +17,31 @@ public class StoryTesterImpl implements StoryTester {
     String result;
     int numFails;
 
+    /** if the testClass is a nested class, this function recursively creates it's enclosing classes **/
+    public static Object constructEnclosingClasses(Class<?> classObject) throws Exception {
+        if (classObject.getEnclosingClass() == null) {
+            try {
+                return classObject.getConstructor().newInstance();
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        constructEnclosingClasses(classObject.getEnclosingClass());
+        try {
+            return classObject.getConstructor().newInstance();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Creates and returns a new instance of testClass **/
     private static Object createTestInstance(Class<?> testClass) throws Exception {
         try {
             // TODO: Try constructing a new instance using the default constructor of testClass
+            return testClass.getConstructor().newInstance();
         } catch (Exception e) {
             // TODO: Inner classes case; Need to first create an instance of the enclosing class
+            return constructEnclosingClasses(testClass);
         }
     }
 
@@ -53,12 +71,17 @@ public class StoryTesterImpl implements StoryTester {
 
             if(fieldObject instanceof Cloneable){
                 // TODO: Case1 - Object in field is cloneable
+                Method cloneMethod = fieldClass.getDeclaredMethod("clone");
+                cloneMethod.setAccessible(true);
+                field.set(res, cloneMethod.invoke(fieldObject));
             }
             else if(copyConstructorExists(fieldClass)){
                 // TODO: Case2 - Object in field is not cloneable but copy constructor exists
+                field.set(res, fieldClass.getDeclaredConstructor(fieldClass).newInstance(fieldObject));
             }
             else{
                 // TODO: Case3 - Object in field is not cloneable and copy constructor does not exist
+                field.set(res, fieldObject);
             }
         }
         this.objectBackup = res;
@@ -68,8 +91,20 @@ public class StoryTesterImpl implements StoryTester {
     /** See homework's pdf for more details on backing up and restoring **/
     private void restoreInstance(Object obj) throws Exception{
         Field[] classFields = obj.getClass().getDeclaredFields();
+        StoryTester backup = null;
+        if (obj instanceof StoryTester)
+        {
+            Field temp = ((StoryTester)obj).getClass().getDeclaredField("objectBackup");
+            backup = (StoryTester)temp.get((StoryTester)obj);
+        }
+        else
+        {
+            //obj isn't a Story tester so doesn't have backup
+            //TODO: throws exception?
+        }
         for(Field field : classFields) {
             // TODO: Complete.
+            field.set(obj, field.get(backup));
         }
     }
 
