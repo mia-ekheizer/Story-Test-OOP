@@ -108,7 +108,7 @@ public class StoryTesterImpl implements StoryTester {
         }
     }
 
-    /** Returns the matching annotation class according to annotationName (Given, When or Then) **/
+    /** Returns the matching annotation class according to annotationName (Given, When or Then). **/
     private static Class<? extends Annotation> GetAnnotationClass(String annotationName){
         switch (annotationName) {
             // TODO: Return matching annotation class
