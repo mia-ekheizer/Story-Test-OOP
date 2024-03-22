@@ -53,6 +53,7 @@ public class StoryTesterImpl implements StoryTester {
         }
     }
 
+
     /** Assigns into objectBackup a backup of obj.
     /** See homework's pdf for more details on backing up and restoring **/
     private void backUpInstance(Object obj) throws Exception {
