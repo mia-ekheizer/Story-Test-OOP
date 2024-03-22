@@ -91,20 +91,9 @@ public class StoryTesterImpl implements StoryTester {
     /** See homework's pdf for more details on backing up and restoring **/
     private void restoreInstance(Object obj) throws Exception{
         Field[] classFields = obj.getClass().getDeclaredFields();
-        StoryTester backup = null;
-        if (obj instanceof StoryTester)
-        {
-            Field temp = ((StoryTester)obj).getClass().getDeclaredField("objectBackup");
-            backup = (StoryTester)temp.get((StoryTester)obj);
-        }
-        else
-        {
-            //obj isn't a Story tester so doesn't have backup
-            //TODO: throws exception?
-        }
         for(Field field : classFields) {
             // TODO: Complete.
-            field.set(obj, field.get(backup));
+            field.set(obj, field.get(this.objectBackup));
         }
     }
 
@@ -112,27 +101,93 @@ public class StoryTesterImpl implements StoryTester {
     private static Class<? extends Annotation> GetAnnotationClass(String annotationName){
         switch (annotationName) {
             // TODO: Return matching annotation class
+            case "Given": return Given.class;
+            case "When": return When.class;
+            case "Then": return Then.class;
+        }
+        return null;
+    }
+
+    private boolean isMethodMatchingSentence(Method method, Class<? extends Annotation> annotationClass, String sentenceSub)
+    {
+        Annotation currAnnotation;
+        try {
+            currAnnotation = method.getAnnotation(annotationClass);
+            Field val = annotationClass.getDeclaredField("value");
+            if (!(val.get(currAnnotation).equals(sentenceSub))) {
+                return false;
+            }
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private void invokeMethodBySentence (Class<? extends Annotation> annotationClass, String sentenceSub, String parameter, Object testInstance,
+                                         Class<?> testClass)
+            throws Exception
+    {
+        int parameterInt = 0;
+        boolean isParamInt;
+        try {
+            parameterInt = Integer.parseInt(parameter);
+            isParamInt = true;
+        }
+        catch (NumberFormatException e)
+        {
+            isParamInt = false;
+        }
+
+        Method[] testMethods = testClass.getDeclaredMethods();
+        try {
+            for (Method method : testMethods)
+            {
+                if(isMethodMatchingSentence(method, annotationClass, sentenceSub)) {
+                    if (isParamInt) {
+                        method.invoke(testInstance, parameterInt);
+                        return;
+                    }
+                    else {
+                        method.invoke(testInstance, parameter);
+                        return;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw e;
+        }
+        if (testClass.getSuperclass() != null) {
+            invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass.getSuperclass());
+        }
+        else {
+            switch(annotationClass.getName()) {
+                case "Given": throw new GivenNotFoundException();
+                case "When": throw new WhenNotFoundException();
+                case "Then": throw new ThenNotFoundException();
+            }
         }
     }
 
     @Override
     public void testOnInheritanceTree(String story, Class<?> testClass) throws Exception {
         if((story == null) || testClass == null) throw new IllegalArgumentException();
-
         this.numFails = 0;
         Object testInstance = createTestInstance(testClass);
-
         for(String sentence : story.split("\n")) {
             boolean methodFound = false;
             String[] words = sentence.split(" ", 2);
 
             String annotationName = words[0];
             Class<? extends Annotation> annotationClass = GetAnnotationClass(annotationName);
-
+            if (annotationClass == null)
+            {
+                continue;
+            }
             String sentenceSub = words[1].substring(0, words[1].lastIndexOf(' ')); // Sentence without the parameter and annotation
             String parameter = sentence.substring(sentence.lastIndexOf(' ') + 1);
-            
-            // TODO: Complete.
+            invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass);
         }
 
         // TODO: Throw StoryTestExceptionImpl if the story failed.
@@ -142,5 +197,20 @@ public class StoryTesterImpl implements StoryTester {
     @Override
     public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
         // TODO: Complete.
+        try {
+            testOnInheritanceTree(story, testClass);
+        } catch (WordNotFoundException e) {
+            try {
+                Class<?>[] nestedClasses = testClass.getDeclaredClasses();
+                for (Class<?> nestedClass : nestedClasses) {
+                    createTestInstance(nestedClass);
+                    testOnNestedClasses(story, nestedClass);
+                }
+            }
+            catch (Exception except) {
+                return;
+            }
+
+        }
     }
 }
