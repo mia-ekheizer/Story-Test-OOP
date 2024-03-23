@@ -4,7 +4,9 @@ import org.junit.ComparisonFailure;
 import provided.*;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 public class StoryTesterImpl implements StoryTester {
 
@@ -17,16 +19,18 @@ public class StoryTesterImpl implements StoryTester {
 
     /** if the testClass is a nested class, this function recursively creates it's enclosing classes **/
     public static Object constructEnclosingClasses(Class<?> classObject) throws Exception {
+        Constructor<?> classObjectCtor = classObject.getDeclaredConstructor();
+        classObjectCtor.setAccessible(true);
         if (classObject.getEnclosingClass() == null) {
             try {
-                return classObject.getConstructor().newInstance();
+                return classObjectCtor.newInstance();
             } catch (Exception e) {
                 return null;
             }
         }
         constructEnclosingClasses(classObject.getEnclosingClass());
         try {
-            return classObject.getConstructor().newInstance();
+            return classObjectCtor.newInstance();
         } catch (Exception e) {
             return null;
         }
@@ -35,10 +39,12 @@ public class StoryTesterImpl implements StoryTester {
     /** Creates and returns a new instance of testClass **/
     private static Object createTestInstance(Class<?> testClass) throws Exception {
         try {
-            // TODO: Try constructing a new instance using the default constructor of testClass
-            return testClass.getConstructor().newInstance();
+            // Try constructing a new instance using the default constructor of testClass
+            Constructor<?> testClassCtor = testClass.getDeclaredConstructor();
+            testClassCtor.setAccessible(true);
+            return testClassCtor.newInstance();
         } catch (Exception e) {
-            // TODO: Inner classes case; Need to first create an instance of the enclosing class
+            // Inner classes case; Need to first create an instance of the enclosing class
             return constructEnclosingClasses(testClass);
         }
     }
@@ -76,7 +82,9 @@ public class StoryTesterImpl implements StoryTester {
             }
             else if(copyConstructorExists(fieldClass)){
                 // Case2 - Object in field is not cloneable but copy constructor exists
-                field.set(res, fieldClass.getDeclaredConstructor(fieldClass).newInstance(fieldObject));
+                Constructor<?> fieldClassCtor = fieldClass.getDeclaredConstructor(fieldClass);
+                fieldClassCtor.setAccessible(true);
+                field.set(res, fieldClassCtor.newInstance(fieldObject));
             }
             else{
                 // Case3 - Object in field is not cloneable and copy constructor does not exist
@@ -91,6 +99,7 @@ public class StoryTesterImpl implements StoryTester {
     private void restoreInstance(Object obj) throws Exception{
         Field[] classFields = obj.getClass().getDeclaredFields();
         for(Field field : classFields) {
+            field.setAccessible(true);
             field.set(obj, field.get(this.objectBackup));
         }
     }
@@ -113,6 +122,7 @@ public class StoryTesterImpl implements StoryTester {
             currAnnotation = method.getAnnotation(annotationClass);
             Method valueMethod = annotationClass.getMethod("value");
             String value = (String)valueMethod.invoke(currAnnotation);
+            value = value.substring(0, value.lastIndexOf(' '));
             if (!(value.equals(sentenceSub))) {
                 return false;
             }
@@ -128,8 +138,7 @@ public class StoryTesterImpl implements StoryTester {
         the given sentence. If the matching method was found, the function invokes it. If not, throws an exception. **/
     private void invokeMethodBySentence (Class<? extends Annotation> annotationClass, String sentenceSub, String parameter, Object testInstance,
                                          Class<?> testClass)
-            throws Exception
-    {
+            throws ComparisonFailure, WordNotFoundException, InvocationTargetException, IllegalAccessException {
         int parameterInt = 0;
         boolean isParamInt;
         try {
@@ -142,29 +151,26 @@ public class StoryTesterImpl implements StoryTester {
         }
 
         Method[] testMethods = testClass.getDeclaredMethods();
-        try {
-            for (Method method : testMethods)
-            {
-                if(isMethodMatchingSentence(method, annotationClass, sentenceSub)) {
-                    if (isParamInt) {
-                        method.invoke(testInstance, parameterInt);
-                        return;
-                    }
-                    else {
-                        method.invoke(testInstance, parameter);
-                        return;
-                    }
+        for (Method method : testMethods)
+        {
+            if(isMethodMatchingSentence(method, annotationClass, sentenceSub)) {
+                method.setAccessible(true);
+                if (isParamInt) {
+                    method.invoke(testInstance, parameterInt);
+                    return;
+                }
+                else {
+                    method.invoke(testInstance, parameter);
+                    return;
                 }
             }
-        } catch (Exception e) {
-            throw e;
         }
         if (testClass.getSuperclass() != null) {
             invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass.getSuperclass());
         }
         else {
-            switch(annotationClass.getName()) {
-                case "Given": throw new GivenNotFoundException();
+            switch((annotationClass.getName()).substring(annotationClass.getName().lastIndexOf('.') + 1)) {
+                case "Given" : throw new GivenNotFoundException();
                 case "When": throw new WhenNotFoundException();
                 case "Then": throw new ThenNotFoundException();
             }
@@ -177,7 +183,6 @@ public class StoryTesterImpl implements StoryTester {
         this.numFails = 0;
         Object testInstance = createTestInstance(testClass);
         for(String sentence : story.split("\n")) {
-            boolean methodFound = false;
             String[] words = sentence.split(" ", 2);
 
             String annotationName = words[0];
@@ -193,12 +198,14 @@ public class StoryTesterImpl implements StoryTester {
             }
             try {
                 invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass);
-            } catch (ComparisonFailure e) {
-                if (this.numFails == 0)
-                {
-                    this.firstFailedSentence = sentenceSub;
-                    this.expected = e.getExpected();
-                    this.result = e.getActual();
+            } catch (InvocationTargetException e) {
+                if (e.getCause() instanceof ComparisonFailure) {
+                    if (this.numFails == 0)
+                    {
+                        this.firstFailedSentence = "Then " + sentenceSub + " " + parameter;
+                        this.expected = ((ComparisonFailure)(e.getCause())).getExpected();
+                        this.result = ((ComparisonFailure)(e.getCause())).getActual();
+                    }
                 }
                 this.restoreInstance(testInstance);
                 this.numFails++;
