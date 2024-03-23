@@ -44,6 +44,9 @@ public class StoryTesterImpl implements StoryTester {
             testClassCtor.setAccessible(true);
             return testClassCtor.newInstance();
         } catch (Exception e) {
+            if (e instanceof  NoSuchMethodException) {
+                return null;
+            }
             // Inner classes case; Need to first create an instance of the enclosing class
             return constructEnclosingClasses(testClass);
         }
@@ -181,6 +184,8 @@ public class StoryTesterImpl implements StoryTester {
     public void testOnInheritanceTree(String story, Class<?> testClass) throws Exception {
         if((story == null) || testClass == null) throw new IllegalArgumentException();
         this.numFails = 0;
+        boolean storyFailed = false;
+        int numWhen = 0;
         Object testInstance = createTestInstance(testClass);
         for(String sentence : story.split("\n")) {
             String[] words = sentence.split(" ", 2);
@@ -193,10 +198,15 @@ public class StoryTesterImpl implements StoryTester {
             }
             String sentenceSub = words[1].substring(0, words[1].lastIndexOf(' ')); // Sentence without the parameter and annotation
             String parameter = sentence.substring(sentence.lastIndexOf(' ') + 1);
-            if (annotationName.equals("Given")) {
-                this.backUpInstance(testInstance);
-            }
             try {
+                if (annotationName.equals("Then"))
+                {
+                    numWhen = 0;
+                }
+                if (annotationName.equals("When") && numWhen == 0) {
+                    this.backUpInstance(testInstance);
+                    numWhen++;
+                }
                 invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass);
             } catch (InvocationTargetException e) {
                 if (e.getCause() instanceof ComparisonFailure) {
@@ -207,12 +217,13 @@ public class StoryTesterImpl implements StoryTester {
                         this.result = ((ComparisonFailure)(e.getCause())).getActual();
                     }
                 }
+                storyFailed = true;
                 this.restoreInstance(testInstance);
                 this.numFails++;
             }
         }
         // Throws StoryTestExceptionImpl if the story failed.
-        if (this.numFails > 0) {
+        if (storyFailed) {
             throw new StoryTestExceptionImpl(this.firstFailedSentence, this.expected, this.result, this.numFails);
         }
     }
@@ -222,15 +233,11 @@ public class StoryTesterImpl implements StoryTester {
         try {
             testOnInheritanceTree(story, testClass);
         } catch (WordNotFoundException e) {
-            try {
-                Class<?>[] nestedClasses = testClass.getDeclaredClasses();
-                for (Class<?> nestedClass : nestedClasses) {
-                    createTestInstance(nestedClass);
+            Class<?>[] nestedClasses = testClass.getDeclaredClasses();
+            for (Class<?> nestedClass : nestedClasses) {
+                if (createTestInstance(nestedClass) != null) {
                     testOnNestedClasses(story, nestedClass);
                 }
-            }
-            catch (Exception except) {
-                return;
             }
         }
     }
