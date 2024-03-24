@@ -15,9 +15,11 @@ public class StoryTesterImpl implements StoryTester {
     String result;
     int numFails;
 
-    /** if the testClass is a nested class, this function recursively creates it's enclosing classes **/
+    /** If the testClass is a nested class, this function recursively creates it's enclosing classes.
+        Returns the instance of the nested class. **/
     public static Object constructEnclosingClasses(Class<?> classObject) throws Exception {
         Constructor<?> classObjectCtor;
+        // If the method has reached the top-level class, the method creates an instance of the class and returns it.
         if (classObject.getEnclosingClass() == null) {
             try {
                 classObjectCtor = classObject.getDeclaredConstructor();
@@ -27,6 +29,7 @@ public class StoryTesterImpl implements StoryTester {
                 return null;
             }
         }
+        // If the method hasn't reached the top-level class, it keeps on looking for it recursively.
         Object enclosingInstance = constructEnclosingClasses(classObject.getEnclosingClass());
         if (enclosingInstance == null)
         {
@@ -34,9 +37,9 @@ public class StoryTesterImpl implements StoryTester {
         }
         try {
             if (Modifier.isStatic(classObject.getModifiers())) {
-                classObjectCtor = classObject.getDeclaredConstructor();//TODO: y problem
-               classObjectCtor.setAccessible(true);
-               return  classObjectCtor.newInstance();
+                classObjectCtor = classObject.getDeclaredConstructor();
+                classObjectCtor.setAccessible(true);
+                return classObjectCtor.newInstance();
             }
             else {
                 classObjectCtor = classObject.getDeclaredConstructor(enclosingInstance.getClass());
@@ -56,6 +59,8 @@ public class StoryTesterImpl implements StoryTester {
             testClassCtor.setAccessible(true);
             return testClassCtor.newInstance();
         } catch (Exception e) {
+            // If the method catches an exception, then testClass is probably a nested class.
+            // If it isn't, an error occurred and the method returns null.
             if (e instanceof  NoSuchMethodException) {
                 try {
                     testClass.getEnclosingClass();
@@ -80,8 +85,7 @@ public class StoryTesterImpl implements StoryTester {
     }
 
 
-    /** Assigns into objectBackup a backup of obj.
-    /** See homework's pdf for more details on backing up and restoring **/
+    /** Assigns into objectBackup a backup of obj. **/
     private void backUpInstance(Object obj) throws Exception {
         Object res = createTestInstance(obj.getClass());
         Field[] fieldsArr = obj.getClass().getDeclaredFields();
@@ -93,7 +97,6 @@ public class StoryTesterImpl implements StoryTester {
                 continue;
             }
             Class<?> fieldClass = fieldObject.getClass();
-
             if(fieldObject instanceof Cloneable){
                 // Case1 - Object in field is cloneable
                 Method cloneMethod = fieldClass.getDeclaredMethod("clone");
@@ -114,8 +117,7 @@ public class StoryTesterImpl implements StoryTester {
         this.objectBackup = res;
     }
 
-    /** Assigns into obj's fields the values in objectBackup fields.
-    /** See homework's pdf for more details on backing up and restoring **/
+    /** Assigns into obj's fields the values in objectBackup fields. **/
     private void restoreInstance(Object obj) throws Exception{
         Field[] classFields = obj.getClass().getDeclaredFields();
         for(Field field : classFields) {
@@ -134,7 +136,8 @@ public class StoryTesterImpl implements StoryTester {
         return null;
     }
 
-    /** checks if a given method matches a given annotationClass with a given sentence**/
+    /** checks if a given method matches a given annotationClass with a given sentence.
+        If it does, the method returns true. Else, returns false. **/
     private boolean isMethodMatchingSentence(Method method, Class<? extends Annotation> annotationClass, String sentenceSub)
     {
         Annotation currAnnotation;
@@ -154,7 +157,7 @@ public class StoryTesterImpl implements StoryTester {
         return true;
     }
 
-    /** Searches for a method in the test class (and through it's inheritance tree) that has the given annotation with
+    /** Searches for a method in the test class (and through the test class's inheritance tree) that has the given annotation with
         the given sentence. If the matching method was found, the function invokes it. If not, throws an exception. **/
     private void invokeMethodBySentence (Class<? extends Annotation> annotationClass, String sentenceSub, String parameter, Object testInstance,
                                          Class<?> testClass)
@@ -164,6 +167,7 @@ public class StoryTesterImpl implements StoryTester {
         {
             if(isMethodMatchingSentence(method, annotationClass, sentenceSub)) {
                 method.setAccessible(true);
+                // Invokes the relevant method with the right parameter type.
                 if (method.getParameterTypes()[0] == String.class)
                 {
                     method.invoke(testInstance, parameter);
@@ -175,9 +179,11 @@ public class StoryTesterImpl implements StoryTester {
                 }
             }
         }
+        // If the matching method hasn't been found in the current class, this method looks for it in the class's super class.
         if (testClass.getSuperclass() != null) {
             invokeMethodBySentence(annotationClass, sentenceSub, parameter, testInstance, testClass.getSuperclass());
         }
+        // If the matching method hasn't been found anywhere in the inheritance tree, the methods throws the relevant exception.
         else {
             switch((annotationClass.getName()).substring(annotationClass.getName().lastIndexOf('.') + 1)) {
                 case "Given" : throw new GivenNotFoundException();
@@ -196,7 +202,6 @@ public class StoryTesterImpl implements StoryTester {
         Object testInstance = createTestInstance(testClass);
         for(String sentence : story.split("\n")) {
             String[] words = sentence.split(" ", 2);
-
             String annotationName = words[0];
             Class<? extends Annotation> annotationClass = GetAnnotationClass(annotationName);
             if (annotationClass == null)
@@ -208,9 +213,11 @@ public class StoryTesterImpl implements StoryTester {
             try {
                 if (annotationName.equals("Then"))
                 {
+                    // Once the story reached "Then", the "When" sequence ends.
                     numWhen = 0;
                 }
                 if (annotationName.equals("When") && numWhen == 0) {
+                    // Backs up the test instance once a "When" sequence begins.
                     this.backUpInstance(testInstance);
                     numWhen++;
                 }
@@ -240,9 +247,12 @@ public class StoryTesterImpl implements StoryTester {
         try {
             testOnInheritanceTree(story, testClass);
         } catch (WordNotFoundException e) {
+            // If the matching method hasn't been found in testClass's inheritance tree, the method looks for it inside
+            // testClass's nested classes.
             Class<?>[] nestedClasses = testClass.getDeclaredClasses();
             if (!(e instanceof GivenNotFoundException))
             {
+                // the "When" and "Then" annotations must be found where "Given" was found.
                 throw e;
             }
             for (Class<?> nestedClass : nestedClasses) {
