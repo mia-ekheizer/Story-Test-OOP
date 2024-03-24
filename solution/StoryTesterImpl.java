@@ -4,10 +4,8 @@ import org.junit.ComparisonFailure;
 import provided.*;
 
 import java.lang.annotation.Annotation;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
+
 public class StoryTesterImpl implements StoryTester {
 
     private Object objectBackup;
@@ -19,18 +17,32 @@ public class StoryTesterImpl implements StoryTester {
 
     /** if the testClass is a nested class, this function recursively creates it's enclosing classes **/
     public static Object constructEnclosingClasses(Class<?> classObject) throws Exception {
-        Constructor<?> classObjectCtor = classObject.getDeclaredConstructor();
-        classObjectCtor.setAccessible(true);
+        Constructor<?> classObjectCtor;
         if (classObject.getEnclosingClass() == null) {
             try {
+                classObjectCtor = classObject.getDeclaredConstructor();
+                classObjectCtor.setAccessible(true);
                 return classObjectCtor.newInstance();
             } catch (Exception e) {
                 return null;
             }
         }
-        constructEnclosingClasses(classObject.getEnclosingClass());
+        Object enclosingInstance = constructEnclosingClasses(classObject.getEnclosingClass());
+        if (enclosingInstance == null)
+        {
+            return null;
+        }
         try {
-            return classObjectCtor.newInstance();
+            if (Modifier.isStatic(classObject.getModifiers())) {
+                classObjectCtor = classObject.getDeclaredConstructor();//TODO: y problem
+               classObjectCtor.setAccessible(true);
+               return  classObjectCtor.newInstance();
+            }
+            else {
+                classObjectCtor = classObject.getDeclaredConstructor(enclosingInstance.getClass());
+                classObjectCtor.setAccessible(true);
+                return classObjectCtor.newInstance(enclosingInstance);
+            }
         } catch (Exception e) {
             return null;
         }
@@ -45,7 +57,12 @@ public class StoryTesterImpl implements StoryTester {
             return testClassCtor.newInstance();
         } catch (Exception e) {
             if (e instanceof  NoSuchMethodException) {
-                return null;
+                try {
+                    testClass.getEnclosingClass();
+                }
+                catch (Exception exception) {
+                    return null;
+                }
             }
             // Inner classes case; Need to first create an instance of the enclosing class
             return constructEnclosingClasses(testClass);
@@ -142,28 +159,18 @@ public class StoryTesterImpl implements StoryTester {
     private void invokeMethodBySentence (Class<? extends Annotation> annotationClass, String sentenceSub, String parameter, Object testInstance,
                                          Class<?> testClass)
             throws ComparisonFailure, WordNotFoundException, InvocationTargetException, IllegalAccessException {
-        int parameterInt = 0;
-        boolean isParamInt;
-        try {
-            parameterInt = Integer.parseInt(parameter);
-            isParamInt = true;
-        }
-        catch (NumberFormatException e)
-        {
-            isParamInt = false;
-        }
-
         Method[] testMethods = testClass.getDeclaredMethods();
         for (Method method : testMethods)
         {
             if(isMethodMatchingSentence(method, annotationClass, sentenceSub)) {
                 method.setAccessible(true);
-                if (isParamInt) {
-                    method.invoke(testInstance, parameterInt);
+                if (method.getParameterTypes()[0] == String.class)
+                {
+                    method.invoke(testInstance, parameter);
                     return;
                 }
                 else {
-                    method.invoke(testInstance, parameter);
+                    method.invoke(testInstance, Integer.parseInt(parameter));
                     return;
                 }
             }
@@ -229,11 +236,15 @@ public class StoryTesterImpl implements StoryTester {
     }
 
     @Override
-    public void testOnNestedClasses(String story, Class<?> testClass) throws Exception {
+    public void testOnNestedClasses(String story, Class<?> testClass) throws Exception, StoryTestExceptionImpl {
         try {
             testOnInheritanceTree(story, testClass);
         } catch (WordNotFoundException e) {
             Class<?>[] nestedClasses = testClass.getDeclaredClasses();
+            if (!(e instanceof GivenNotFoundException))
+            {
+                throw e;
+            }
             for (Class<?> nestedClass : nestedClasses) {
                 if (createTestInstance(nestedClass) != null) {
                     testOnNestedClasses(story, nestedClass);
